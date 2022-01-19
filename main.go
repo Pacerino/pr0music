@@ -1,8 +1,8 @@
 package main
 
 import (
+	"main/database"
 	"main/pr0gramm"
-	"main/recognition"
 
 	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
@@ -13,10 +13,15 @@ type Pr0Service struct {
 	After   pr0gramm.Timestamp
 }
 
+var db *database.Session
+
 func main() {
 	godotenv.Load()
-	log.Info("Download")
-	_ = recognition.DetectMusic("https://vid.pr0gramm.com/2022/01/18/df0e313f122115d6.mp4")
+	_, err := database.Connect()
+	if err != nil {
+		log.WithError(err).Error("Error while connecting to a database!")
+	}
+	/* _ = recognition.DetectMusic("https://vid.pr0gramm.com/2022/01/19/388fb24da04c528c.mp4") */
 	/* session := pr0gramm.NewSession(http.Client{Timeout: 10 * time.Second})
 	if resp, err := session.Login(os.Getenv("PR0_USER"), os.Getenv("PR0_PASSWORD")); err != nil {
 		log.WithError(err).Fatal("Could not login into pr0gramm!")

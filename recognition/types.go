@@ -9,8 +9,6 @@ type Metadata struct {
 	Artist string
 	// URL to Audd.io from the recognized song
 	Url string
-	// IDs from MusicBrainz to fetch more metadata via the Musicbrainz API if necessary.
-	MusicBrainzIDS []string
 	// Respective links to known streaming platforms
 	Links Links
 	// Respective IDs to known streaming platforms
