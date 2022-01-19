@@ -68,7 +68,7 @@ func (sauce *SauceSession) ticker(t time.Time) {
 					if err != nil {
 						log.WithError(err).Error("Could not verify the video URL of the post")
 					} else {
-						meta = recognition.DetectMusic(sourceURL)
+						_ = recognition.DetectMusic(sourceURL)
 					}
 				}
 			}
