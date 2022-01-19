@@ -46,12 +46,12 @@ func DetectMusic(url string) (data Metadata) {
 func uploadToService(soundBuff []byte) audd.RecognitionResult {
 	api_token := os.Getenv("AUDD_API_TOKEN")
 	if len(api_token) == 0 {
-		log.Fatal("Missing AUDD_API_TOKEN from environment!")
+		log.Fatal("Missing AUDD_API_TOKEN from environment")
 	}
 	client := audd.NewClient(api_token)
 	song, err := client.RecognizeByFile(bytes.NewReader(soundBuff), "apple_music,deezer,spotify", nil)
 	if err != nil {
-		log.WithError(err).Error("Error while recognizing the music!")
+		log.WithError(err).Error("Error while recognizing the music")
 	}
 	return song
 }
@@ -59,14 +59,14 @@ func uploadToService(soundBuff []byte) audd.RecognitionResult {
 func downloadVideo(url string) (output []byte) {
 	resp, err := http.Get(url)
 	if err != nil {
-		log.WithError(err).Error("Error downloading the video!")
+		log.WithError(err).Error("Error downloading the video")
 	}
 	defer resp.Body.Close()
 
 	outputBuffer := new(bytes.Buffer)
 	_, err = io.Copy(outputBuffer, resp.Body)
 	if err != nil {
-		log.WithError(err).Error("Error downloading the video!")
+		log.WithError(err).Error("Error downloading the video")
 	}
 
 	return outputBuffer.Bytes()
