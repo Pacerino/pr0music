@@ -2,6 +2,7 @@ package pr0gramm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -9,6 +10,8 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strconv"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type Session struct {
@@ -60,6 +63,24 @@ func (sess *Session) apiGET(path string, query url.Values, target interface{}) e
 	}
 	return json.NewDecoder(response.Body).Decode(target)
 }
+func (sess *Session) apiPOST(path string, data url.Values, target interface{}) error {
+	uri := "https://pr0gramm.com/api" + path
+
+	response, err := sess.client.PostForm(uri, data)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_, _ = io.Copy(ioutil.Discard, response.Body)
+		_ = response.Body.Close()
+	}()
+
+	if response.StatusCode/100 != 2 {
+		return fmt.Errorf("error %d", response.StatusCode)
+	}
+	return json.NewDecoder(response.Body).Decode(target)
+}
 
 func (sess *Session) GetUserComments(user string, flags int, after int) (CommentResponse, error) {
 	query := make(url.Values)
@@ -77,5 +98,44 @@ func (sess *Session) GetUserComments(user string, flags int, after int) (Comment
 func (sess *Session) GetComments() (MessagesResponse, error) {
 	var response MessagesResponse
 	err := sess.apiGET("/inbox/comments", nil, &response)
+	return response, err
+}
+
+func (sess *Session) PostComment(itemID int, content string, replyTo int) (Response, error) {
+	if itemID == 0 {
+		log.WithError(errors.New("missing itemid"))
+	} else if len(content) == 0 {
+		log.WithError(errors.New("missing content"))
+	}
+	sitemID := strconv.Itoa(itemID)
+
+	data := url.Values{
+		"comment": {content},
+		"itemId":  {sitemID},
+	}
+	if replyTo != 0 {
+		sreplyTo := strconv.Itoa(replyTo)
+		data.Add("parentId", sreplyTo)
+	}
+
+	var response Response
+	err := sess.apiPOST("/inbox/comments", data, &response)
+	return response, err
+}
+
+func (sess *Session) SendMessage(recipientName string, comment string) (Response, error) {
+	if len(recipientName) == 0 {
+		log.WithError(errors.New("missing recipientName"))
+	} else if len(comment) == 0 {
+		log.WithError(errors.New("missing comment"))
+	}
+
+	data := url.Values{
+		"recipientName": {recipientName},
+		"comment ":      {comment},
+	}
+
+	var response Response
+	err := sess.apiPOST("/inbox/post", data, &response)
 	return response, err
 }
