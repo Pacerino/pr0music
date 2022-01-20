@@ -138,7 +138,7 @@ func (sess *Session) PostComment(itemID int, content string, replyTo int) (Respo
 	}
 
 	var response Response
-	err := sess.apiPOST("/inbox/comments", data, &response)
+	err := sess.apiPOST("/comments/post", data, &response)
 	return response, err
 }
 
