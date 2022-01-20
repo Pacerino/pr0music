@@ -19,7 +19,6 @@ func DetectMusic(url string) (data Metadata) {
 	ids := &IDS{}
 	if len(songInfo.Title) > 0 {
 		if songInfo.AppleMusic != nil {
-			log.Debug((songInfo.AppleMusic != &audd.AppleMusicResult{}))
 			links.AppleMusic = songInfo.AppleMusic.URL
 		}
 
