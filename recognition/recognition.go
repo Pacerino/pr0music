@@ -18,16 +18,17 @@ func DetectMusic(url string) (data Metadata) {
 	links := &Links{}
 	ids := &IDS{}
 	if len(songInfo.Title) > 0 {
-		if (&audd.AppleMusicResult{} != songInfo.AppleMusic) {
+		if songInfo.AppleMusic != nil {
+			log.Debug((songInfo.AppleMusic != &audd.AppleMusicResult{}))
 			links.AppleMusic = songInfo.AppleMusic.URL
 		}
 
-		if (&audd.DeezerResult{} != songInfo.Deezer) {
+		if songInfo.Deezer != nil {
 			links.Deezer = songInfo.Deezer.Link
 			ids.Deezer = songInfo.Deezer.ID
 		}
 
-		if (&audd.SpotifyResult{} != songInfo.Spotify) {
+		if songInfo.Spotify != nil {
 			links.Spotify = songInfo.Spotify.ExternalUrls.Spotify
 			ids.Spotify = songInfo.Spotify.ID
 		}
