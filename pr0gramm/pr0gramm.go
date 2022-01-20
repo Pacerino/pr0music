@@ -23,6 +23,21 @@ func NewSession(client http.Client) *Session {
 	return &Session{client: client}
 }
 
+func (sess *Session) GetNonce() (string, error) {
+	for _, c := range sess.client.Jar.Cookies(&url.URL{Scheme: "https", Host: "pr0gramm.com"}) {
+		if c.Name == "me" {
+			decodedMe, err := url.QueryUnescape(c.Value)
+			if err != nil {
+				log.WithError(err).Error("Could not decode the me cookie")
+			}
+			cookie := &MeCookie{}
+			json.Unmarshal([]byte(decodedMe), &cookie)
+			return cookie.ID[0:16], nil
+		}
+	}
+	return "", errors.New("could not get the nonce")
+}
+
 func (sess *Session) Login(username, password string) (*LoginResponse, error) {
 	body := make(url.Values)
 	body.Set("name", username)
@@ -65,7 +80,11 @@ func (sess *Session) apiGET(path string, query url.Values, target interface{}) e
 }
 func (sess *Session) apiPOST(path string, data url.Values, target interface{}) error {
 	uri := "https://pr0gramm.com/api" + path
-
+	nonce, err := sess.GetNonce()
+	if err != nil {
+		log.WithError(err)
+	}
+	data.Add("_nonce", nonce)
 	response, err := sess.client.PostForm(uri, data)
 	if err != nil {
 		return err
@@ -132,7 +151,7 @@ func (sess *Session) SendMessage(recipientName string, comment string) (Response
 
 	data := url.Values{
 		"recipientName": {recipientName},
-		"comment ":      {comment},
+		"comment":       {comment},
 	}
 
 	var response Response
