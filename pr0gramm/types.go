@@ -64,3 +64,17 @@ type Message struct {
 type MessagesResponse struct {
 	Messages []Message `json:"messages"`
 }
+
+type MeCookie struct {
+	T        int    `json:"t"`
+	Lv       int    `json:"lv"`
+	Paid     bool   `json:"paid"`
+	N        string `json:"n"`
+	ID       string `json:"id"`
+	A        int    `json:"a"`
+	Pp       string `json:"pp"`
+	Verified bool   `json:"verified"`
+	Vv       int    `json:"vv"`
+	VM       bool   `json:"vm"`
+	Fl       int    `json:"fl"`
+}
