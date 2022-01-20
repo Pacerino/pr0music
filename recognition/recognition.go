@@ -17,30 +17,33 @@ func DetectMusic(url string) (data Metadata) {
 	songInfo := uploadToService(soundBuffer)
 	links := &Links{}
 	ids := &IDS{}
+	if len(songInfo.Title) > 0 {
+		if (&audd.AppleMusicResult{} != songInfo.AppleMusic) {
+			links.AppleMusic = songInfo.AppleMusic.URL
+		}
 
-	if (&audd.AppleMusicResult{}) != songInfo.AppleMusic {
-		links.AppleMusic = songInfo.AppleMusic.URL
-	}
+		if (&audd.DeezerResult{} != songInfo.Deezer) {
+			links.Deezer = songInfo.Deezer.Link
+			ids.Deezer = songInfo.Deezer.ID
+		}
 
-	if (&audd.DeezerResult{}) != songInfo.Deezer {
-		links.Deezer = songInfo.Deezer.Link
-		ids.Deezer = songInfo.Deezer.ID
-	}
+		if (&audd.SpotifyResult{} != songInfo.Spotify) {
+			links.Spotify = songInfo.Spotify.ExternalUrls.Spotify
+			ids.Spotify = songInfo.Spotify.ID
+		}
 
-	if (&audd.SpotifyResult{}) != songInfo.Spotify {
-		links.Spotify = songInfo.Spotify.ExternalUrls.Spotify
-		ids.Spotify = songInfo.Spotify.ID
+		meta := Metadata{
+			Title:  songInfo.Title,
+			Album:  songInfo.Album,
+			Artist: songInfo.Artist,
+			Url:    songInfo.SongLink,
+			Links:  *links,
+			IDS:    *ids,
+		}
+		return meta
+	} else {
+		return Metadata{}
 	}
-
-	meta := Metadata{
-		Title:  songInfo.Title,
-		Album:  songInfo.Album,
-		Artist: songInfo.Artist,
-		Url:    songInfo.SongLink,
-		Links:  *links,
-		IDS:    *ids,
-	}
-	return meta
 }
 
 func uploadToService(soundBuff []byte) audd.RecognitionResult {
