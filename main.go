@@ -274,9 +274,9 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message, sourceURL string) (string
 }
 
 func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
-	songInfo, err := s.AnalyzeVideo(url)
+	songInfo, err := s.audd.RecognizeByUrl(url, "apple_music,deezer,spotify", nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("recognizing music: %v", err)
 	}
 
 	if len(songInfo.Title) > 0 {
