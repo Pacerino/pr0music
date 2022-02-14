@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"main/database"
 	"main/pr0gramm"
 	"main/recognition"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,22 +48,46 @@ func main() {
 		db:      db,
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go ss.commentWorker(&wg)
+	ctx, cancel := context.WithCancel(context.Background())
+	var cwg sync.WaitGroup
+	cwg.Add(1)
+	go ss.commentWorker(ctx, &cwg)
 
-	wg.Add(10)
+	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
-		go ss.detectWorker(&wg)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for msg := range ss.msgChan {
+				ss.handleMessage(&msg)
+			}
+		}()
 	}
 
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	<-c
+
+	// cancel the context to close the comment worker
+	cancel()
+	// wait for comment worker to finish
+	cwg.Wait()
+
+	// close channel and wait for workers to finish
+	close(ss.msgChan)
 	wg.Wait()
 }
 
-func (s *SauceSession) commentWorker(wg *sync.WaitGroup) {
+func (s *SauceSession) commentWorker(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for range time.Tick(5 * time.Second) {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		msgResp, err := s.session.GetComments()
 		logrus.Debug("check Pr0gramm comments")
 		if err != nil {
@@ -86,14 +112,6 @@ func (s *SauceSession) commentWorker(wg *sync.WaitGroup) {
 			// create a copy of the message to take a valid pointer
 			s.msgChan <- msg
 		}
-	}
-}
-
-func (s *SauceSession) detectWorker(wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	for msg := range s.msgChan {
-		s.handleMessage(&msg)
 	}
 }
 
