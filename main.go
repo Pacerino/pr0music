@@ -187,13 +187,7 @@ func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
 	// Post ist nicht in der Datenbank
 	logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("Post has never been queried, searching for the music")
 
-	sourceURL, err := fetchThumb(msg.Thumb)
-	if err != nil {
-		logrus.WithError(err).Error("Could not verify the video URL of the post")
-		return
-	}
-
-	message, dbItem, err := s.findSong(msg, sourceURL)
+	message, dbItem, err := s.findSong(msg)
 	if err != nil {
 		logrus.WithError(err).Error("could not fetch song metdata")
 		return
@@ -214,23 +208,23 @@ func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
 	return
 }
 
-func fetchThumb(thumb string) (string, error) {
-	url := fmt.Sprintf("https://vid.pr0gramm.com/%s.mp4", strings.Split(thumb, ".")[0])
+func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, *Items, error) {
+	url := fmt.Sprintf("https://vid.pr0gramm.com/%s.mp4", strings.Split(msg.Thumb, ".")[0])
 	resp, err := http.Head(url)
 	if err != nil {
-		return "", fmt.Errorf("fetching thumb url: %v", err)
+		return "", nil, fmt.Errorf("fetching thumb url: %v", err)
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "Sag mal, raffst du dat nicht? Dit ist kein Video! Nur Idioten im Internet...", &Items{ItemID: msg.ItemID}, nil
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("invalid status %q: %v", resp.Status, url)
+		return "", nil, fmt.Errorf("invalid status %q: %v", resp.Status, url)
 	}
 
-	return url, nil
-}
-
-func (s *SauceSession) findSong(msg *pr0gramm.Message, sourceURL string) (string, *Items, error) {
 	dt := time.Now().Format("02.01.2006 um 15:04")
-	meta, err := s.detectMusic(sourceURL)
+	meta, err := s.detectMusic(url)
 	if err != nil {
 		return "", nil, err
 	}
@@ -266,11 +260,7 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message, sourceURL string) (string
 	// Keine Metadaten gefunden
 	logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("No metadata found")
 	message := fmt.Sprintf("Es wurden keine Informationen zu dem Lied gefunden\n\nZeitpunkt der Überprüfung %s", dt)
-	dbItem := Items{
-		ItemID: msg.ItemID,
-	}
-
-	return message, &dbItem, nil
+	return message, &Items{ItemID: msg.ItemID}, nil
 }
 
 func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
