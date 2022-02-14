@@ -1,78 +1,164 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"main/database"
-	"main/pr0gramm"
-	"main/recognition"
+	"github.com/AudDMusic/audd-go"
+	"github.com/Pacerino/pr0music/pr0gramm"
+	"gorm.io/gorm"
+	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
+const maxWorkers = 10
+
 type SauceSession struct {
-	Pr0 *pr0gramm.Session
-	DB  *database.DB
-	WG  sync.WaitGroup
+	session *pr0gramm.Session
+	db      *gorm.DB
+	msgChan chan pr0gramm.Message
+	audd    *audd.Client
+}
+
+func init() {
+	logrus.SetLevel(logrus.DebugLevel)
+	if err := godotenv.Load(); err != nil {
+		panic(err)
+	}
+
+	for _, env := range []string{"DB_HOST", "DB_USER", "DB_PASS", "DB_DATABASE", "DB_PORT", "DB_SSL"} {
+		if len(os.Getenv(env)) == 0 {
+			logrus.Fatal(fmt.Sprintf("Missing %s from environment", env))
+		}
+	}
 }
 
 func main() {
-	godotenv.Load()
-	log.SetLevel(log.DebugLevel)
-	db, err := database.Connect()
+	db, err := connectDB(fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+		os.Getenv("DB_HOST"),
+		os.Getenv("DB_USER"),
+		os.Getenv("DB_PASS"),
+		os.Getenv("DB_DATABASE"),
+		os.Getenv("DB_PORT"),
+		os.Getenv("DB_SSL"),
+	))
 	if err != nil {
-		log.WithError(err).Error("Error while connecting to a database!")
+		logrus.WithError(err).Error("Error while connecting to a database!")
 	}
+
+	apiToken := os.Getenv("AUDD_API_TOKEN")
+	if len(apiToken) == 0 {
+		log.Fatal("Missing AUDD_API_TOKEN from environment")
+	}
+
 	session := pr0gramm.NewSession(http.Client{Timeout: 10 * time.Second})
 	if resp, err := session.Login(os.Getenv("PR0_USER"), os.Getenv("PR0_PASSWORD")); err != nil {
-		log.WithError(err).Fatal("Error logging in to pr0gramm")
+		logrus.WithError(err).Fatal("Error logging in to pr0gramm")
 		return
 	} else {
 		if !resp.Success {
-			log.Fatal("Error logging in to pr0gramm")
+			logrus.Fatal("Error logging in to pr0gramm")
 			return
 		}
 	}
-	pr0 := SauceSession{Pr0: session, DB: db}
-	DoEvery(5*time.Second, pr0.ticker)
+
+	ss := SauceSession{
+		session: session,
+		db:      db,
+		audd:    audd.NewClient(apiToken),
+		msgChan: make(chan pr0gramm.Message),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var cwg sync.WaitGroup
+	cwg.Add(1)
+	go ss.commentWorker(ctx, &cwg)
+
+	var wg sync.WaitGroup
+	for i := 0; i < maxWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for msg := range ss.msgChan {
+				ss.handleMessage(&msg)
+			}
+		}()
+	}
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	<-c
+
+	// cancel the context to close the comment worker
+	cancel()
+	// wait for comment worker to finish
+	cwg.Wait()
+
+	// close channel and wait for workers to finish
+	close(ss.msgChan)
+	wg.Wait()
 }
 
-func (sauce *SauceSession) ticker(t time.Time) {
-	msgarr, err := sauce.Pr0.GetComments()
-	log.Debug("Check Pr0gramm Comments")
-	if err != nil {
-		log.WithError(err)
-	}
-	for _, msg := range msgarr.Messages {
-		// Alle Kommentare
-		if msg.Read != 1 {
-			// Ungelesene Kommentare
-			if strings.Contains(strings.ToLower(msg.Message), "@sauce") {
-				// Bot wurde Markiert
-				log.WithFields(log.Fields{"item_id": msg.ItemID}).Debug(fmt.Sprintf("Bot was marked by %s", msg.Name))
-				sauce.WG.Add(1)
-				go sauce.detect(msg)
+func (s *SauceSession) commentWorker(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for range time.Tick(5 * time.Second) {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		msgResp, err := s.session.GetComments()
+		logrus.Debug("check Pr0gramm comments")
+		if err != nil {
+			logrus.WithError(err).Info("failed fetching comments")
+			continue
+		}
+
+		for _, msg := range msgResp.Messages {
+			// Skip already read comments
+			if msg.Read == 1 {
+				continue
 			}
+
+			// Check if bot was pinged
+			if !strings.Contains(strings.ToLower(msg.Message), "@sauce") {
+				continue
+			}
+
+			logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).
+				Debug(fmt.Sprintf("Bot was marked by %s", msg.Name))
+
+			// create a copy of the message to take a valid pointer
+			s.msgChan <- msg
 		}
 	}
-	sauce.WG.Wait()
 }
 
-func (sauce *SauceSession) detect(msg pr0gramm.Message) {
-	var item database.Items
-	sauce.DB.Find(&item, "item_id", msg.ItemID)
-	if item.ItemID > 0 {
+func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
+	var item Items
+	err := s.db.Find(&item, "item_id", msg.ItemID).Error
+	if err != nil {
+		logrus.WithError(err).Error("Could not check database for post")
+		return
+	}
+
+	if item.ID != 0 {
+		var message string
 		//Post ist in der Datenbank
 		if len(item.Title) > 0 {
 			// Es ist ein Titel vorhanden, sende Nachricht mit den Metadaten
-			log.WithFields(log.Fields{"item_id": item.ItemID}).Debug("Post has already been queried, information available")
-			message := fmt.Sprintf("Hallo %s,\n\nDu hast bei https://pr0gramm.com/new/%d nach der Musik gefragt.\nJemand hat bereits danach gefragt, daher erhälst du hier nur eine Kopie.\n\nTitel: %s\nAlbum: %s\nArtist: %s\n\nHier ist ein Link: %s",
+			logrus.WithFields(logrus.Fields{"item_id": item.ItemID}).Debug("Post has already been queried, information available")
+			message = fmt.Sprintf("Hallo %s,\n\nDu hast bei https://pr0gramm.com/new/%d nach der Musik gefragt.\nJemand hat bereits danach gefragt, daher erhälst du hier nur eine Kopie.\n\nTitel: %s\nAlbum: %s\nArtist: %s\n\nHier ist ein Link: %s",
 				msg.Name,
 				msg.ItemID,
 				item.Title,
@@ -80,87 +166,133 @@ func (sauce *SauceSession) detect(msg pr0gramm.Message) {
 				item.Artist,
 				item.Url,
 			)
-			_, err := sauce.Pr0.SendMessage(msg.Name, message)
-			if err != nil {
-				log.WithError(err).Error("Could not send private message to user")
-			} else {
-				log.Info("Private message sent to user")
-			}
 		} else {
 			// es ist kein Titel vorhanden, sende Nachricht ohne Metadaten
-			log.WithFields(log.Fields{"item_id": item.ID}).Debug("Post has already been queried, no information available")
-			message := fmt.Sprintf("Hallo %s,\n\nDu hast bei https://pr0gramm.com/new/%d nach der Musik gefragt.\nLeider wurden keine Informationen gefunden.",
+			logrus.WithFields(logrus.Fields{"item_id": item.ID}).Debug("Post has already been queried, no information available")
+			message = fmt.Sprintf("Hallo %s,\n\nDu hast bei https://pr0gramm.com/new/%d nach der Musik gefragt.\nLeider wurden keine Informationen gefunden.",
 				msg.Name,
 				msg.ItemID,
 			)
-			_, err := sauce.Pr0.SendMessage(msg.Name, message)
-			if err != nil {
-				log.WithError(err).Error("Could not send private message to user")
-			} else {
-				log.Info("Private message sent to user")
-			}
 		}
-	} else {
-		// Post ist nicht in der Datenbank
-		log.WithFields(log.Fields{"item_id": msg.ItemID}).Debug("Post has never been queried, searching for the music")
-		sourceURL, err := ResolveThumb(msg.Thumb)
+
+		_, err := s.session.SendMessage(msg.Name, message)
 		if err != nil {
-			log.WithError(err).Error("Could not verify the video URL of the post")
-		} else {
-			dt := time.Now()
-			meta := recognition.DetectMusic(sourceURL)
-			if len(meta.Title) > 0 {
-				// Metadaten gefunden
-				log.WithFields(log.Fields{"item_id": msg.ItemID}).Debug("Metadata was found")
-				dbItem := database.Items{
-					ItemID: msg.ItemID,
-					Title:  meta.Title,
-					Album:  meta.Album,
-					Artist: meta.Artist,
-					Url:    meta.Url,
-					Metadata: database.Metadata{
-						SpotifyURL: meta.Links.Spotify,
-						SpotifyID:  meta.IDS.Spotify,
-						DeezerURL:  meta.Links.Deezer,
-						DeezerID:   strconv.Itoa(meta.IDS.Deezer),
-					},
-				}
-				result := sauce.DB.Create(&dbItem)
-				if result.Error != nil {
-					log.WithError(result.Error).Error("Error saving metadata to the database!")
-				}
-				message := fmt.Sprintf("Es wurden folgende Informationen dazu gefunden:\n%s - %s\nAus dem Album: %s\n\nHier ist ein Link: %s\nZeitpunkt der Überprüfung %s",
-					meta.Title,
-					meta.Album,
-					meta.Album,
-					meta.Url,
-					dt.Format("02.01.2006 um 15:04"),
-				)
-				_, err := sauce.Pr0.PostComment(msg.ItemID, message, msg.ID)
-				if err != nil {
-					log.WithError(err).Error("Could not post comment")
-				} else {
-					log.Info("Comment written")
-				}
-			} else {
-				// Keine Metadaten gefunden
-				log.WithFields(log.Fields{"item_id": msg.ItemID}).Debug("No metadata found")
-				message := fmt.Sprintf("Es wurden keine Informationen zu dem Lied gefunden\n\nZeitpunkt der Überprüfung %s", dt.Format("02.01.2006 um 15:04"))
-				dbItem := database.Items{
-					ItemID: msg.ItemID,
-				}
-				result := sauce.DB.Create(&dbItem)
-				if result.Error != nil {
-					log.WithError(result.Error).Error("Error saving metadata to the database!")
-				}
-				_, err := sauce.Pr0.PostComment(msg.ItemID, message, msg.ID)
-				if err != nil {
-					log.WithError(err).Error("Could not post comment")
-				} else {
-					log.Info("Comment written")
-				}
-			}
+			logrus.WithError(err).Error("Could not send private message to user")
 		}
+
+		logrus.Info("Private message sent to user")
+		return
 	}
-	sauce.WG.Done()
+
+	// Post ist nicht in der Datenbank
+	logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("Post has never been queried, searching for the music")
+
+	message, dbItem, err := s.findSong(msg)
+	if err != nil {
+		logrus.WithError(err).Error("could not fetch song metdata")
+		return
+	}
+
+	if err := s.db.Create(dbItem).Error; err != nil {
+		logrus.WithError(err).Error("Error saving metadata to the database!")
+		return
+	}
+
+	_, err = s.session.PostComment(msg.ItemID, message, msg.ID)
+	if err != nil {
+		logrus.WithError(err).Error("Could not post comment")
+		return
+	}
+
+	logrus.Info("Comment written")
+	return
+}
+
+func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, *Items, error) {
+	url := fmt.Sprintf("https://vid.pr0gramm.com/%s.mp4", strings.Split(msg.Thumb, ".")[0])
+	resp, err := http.Head(url)
+	if err != nil {
+		return "", nil, fmt.Errorf("fetching thumb url: %v", err)
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		return "Sag mal, raffst du dat nicht? Dit ist kein Video! Nur Idioten im Internet...", &Items{ItemID: msg.ItemID}, nil
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", nil, fmt.Errorf("invalid status %q: %v", resp.Status, url)
+	}
+
+	dt := time.Now().Format("02.01.2006 um 15:04")
+	meta, err := s.detectMusic(url)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if meta != nil {
+		// Metadaten gefunden
+		logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("Metadata was found")
+		dbItem := Items{
+			ItemID: msg.ItemID,
+			Title:  meta.Title,
+			Album:  meta.Album,
+			Artist: meta.Artist,
+			Url:    meta.Url,
+			Metadata: ItemMetadata{
+				SpotifyURL: meta.Links.Spotify,
+				SpotifyID:  meta.IDs.Spotify,
+				DeezerURL:  meta.Links.Deezer,
+				DeezerID:   strconv.Itoa(meta.IDs.Deezer),
+			},
+		}
+
+		message := fmt.Sprintf("Es wurden folgende Informationen dazu gefunden:\n%s - %s\nAus dem Album: %s\n\nHier ist ein Link: %s\nZeitpunkt der Überprüfung %s",
+			meta.Title,
+			meta.Album,
+			meta.Album,
+			meta.Url,
+			dt,
+		)
+
+		return message, &dbItem, nil
+	}
+
+	// Keine Metadaten gefunden
+	logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("No metadata found")
+	message := fmt.Sprintf("Es wurden keine Informationen zu dem Lied gefunden\n\nZeitpunkt der Überprüfung %s", dt)
+	return message, &Items{ItemID: msg.ItemID}, nil
+}
+
+func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
+	songInfo, err := s.audd.RecognizeByUrl(url, "apple_music,deezer,spotify", nil)
+	if err != nil {
+		return nil, fmt.Errorf("recognizing music: %v", err)
+	}
+
+	if len(songInfo.Title) > 0 {
+		m := &RecognizedMetadata{
+			Title:  songInfo.Title,
+			Album:  songInfo.Album,
+			Artist: songInfo.Artist,
+			Url:    songInfo.SongLink,
+		}
+
+		if songInfo.AppleMusic != nil {
+			m.Links.AppleMusic = songInfo.AppleMusic.URL
+		}
+
+		if songInfo.Deezer != nil {
+			m.Links.Deezer = songInfo.Deezer.Link
+			m.IDs.Deezer = songInfo.Deezer.ID
+		}
+
+		if songInfo.Spotify != nil {
+			m.Links.Spotify = songInfo.Spotify.ExternalUrls.Spotify
+			m.IDs.Spotify = songInfo.Spotify.ID
+		}
+
+		return m, nil
+	}
+
+	return nil, nil
 }

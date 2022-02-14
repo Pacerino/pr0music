@@ -1,4 +1,4 @@
-package database
+package main
 
 import (
 	"time"
@@ -13,10 +13,10 @@ type Items struct {
 	Album    string
 	Artist   string
 	Url      string
-	Metadata Metadata `gorm:"embedded"`
+	Metadata ItemMetadata `gorm:"embedded"`
 }
 
-type Metadata struct {
+type ItemMetadata struct {
 	DeezerURL     string
 	DeezerID      string
 	SoundcloudURL string
