@@ -1,7 +1,7 @@
 package recognition
 
 import (
-	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -11,80 +11,78 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func DetectMusic(url string) (data Metadata) {
-	buffer := downloadVideo(url)
-	soundBuffer := extractSound(buffer)
-	songInfo := uploadToService(soundBuffer)
-	links := &Links{}
-	ids := &IDS{}
+func DetectMusic(url string) (*Metadata, error) {
+	songInfo, err := analyzeVideo(url)
+	if err != nil {
+		return nil, err
+	}
+
 	if len(songInfo.Title) > 0 {
-		if songInfo.AppleMusic != nil {
-			links.AppleMusic = songInfo.AppleMusic.URL
-		}
-
-		if songInfo.Deezer != nil {
-			links.Deezer = songInfo.Deezer.Link
-			ids.Deezer = songInfo.Deezer.ID
-		}
-
-		if songInfo.Spotify != nil {
-			links.Spotify = songInfo.Spotify.ExternalUrls.Spotify
-			ids.Spotify = songInfo.Spotify.ID
-		}
-
-		meta := Metadata{
+		m := Metadata{
 			Title:  songInfo.Title,
 			Album:  songInfo.Album,
 			Artist: songInfo.Artist,
 			Url:    songInfo.SongLink,
-			Links:  *links,
-			IDS:    *ids,
 		}
-		return meta
-	} else {
-		return Metadata{}
+
+		if songInfo.AppleMusic != nil {
+			m.Links.AppleMusic = songInfo.AppleMusic.URL
+		}
+
+		if songInfo.Deezer != nil {
+			m.Links.Deezer = songInfo.Deezer.Link
+			m.IDS.Deezer = songInfo.Deezer.ID
+		}
+
+		if songInfo.Spotify != nil {
+			m.Links.Spotify = songInfo.Spotify.ExternalUrls.Spotify
+			m.IDS.Spotify = songInfo.Spotify.ID
+		}
+
+		return &m, nil
 	}
+
+	return nil, nil
 }
 
-func uploadToService(soundBuff []byte) audd.RecognitionResult {
-	api_token := os.Getenv("AUDD_API_TOKEN")
-	if len(api_token) == 0 {
+var apiToken string
+var client *audd.Client
+
+func init() {
+	apiToken = os.Getenv("AUDD_API_TOKEN")
+	if len(apiToken) == 0 {
 		log.Fatal("Missing AUDD_API_TOKEN from environment")
 	}
-	client := audd.NewClient(api_token)
-	song, err := client.RecognizeByFile(bytes.NewReader(soundBuff), "apple_music,deezer,spotify", nil)
-	if err != nil {
-		log.WithError(err).Error("Error while recognizing the music")
-	}
-	return song
+	client = audd.NewClient(apiToken)
 }
 
-func downloadVideo(url string) (output []byte) {
+func analyzeVideo(url string) (*audd.RecognitionResult, error) {
 	resp, err := http.Get(url)
 	if err != nil {
-		log.WithError(err).Error("Error downloading the video")
+		return nil, fmt.Errorf("downloading video: %v", err)
 	}
 	defer resp.Body.Close()
 
-	outputBuffer := new(bytes.Buffer)
-	_, err = io.Copy(outputBuffer, resp.Body)
-	if err != nil {
-		log.WithError(err).Error("Error downloading the video")
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("invalid status %q: %v", resp.Status, url)
 	}
 
-	return outputBuffer.Bytes()
-}
+	reader, writer := io.Pipe()
+	go func() {
+		err := fluentffmpeg.NewCommand("").
+			PipeInput(resp.Body).
+			OutputFormat("mp3").
+			PipeOutput(writer).
+			Run()
+		if err != nil {
+			log.WithError(err).Error("Error while extracting the audio track")
+		}
+	}()
 
-func extractSound(input []byte) (output []byte) {
-	inputBuff := bytes.NewBuffer(input)
-	outputBuffer := bytes.NewBuffer(nil)
-	err := fluentffmpeg.NewCommand("").
-		PipeInput(inputBuff).
-		OutputFormat("mp3").
-		PipeOutput(outputBuffer).
-		Run()
+	song, err := client.RecognizeByFile(reader, "apple_music,deezer,spotify", nil)
 	if err != nil {
-		log.WithError(err).Error("Error while extracting the audio track")
+		return nil, fmt.Errorf("recognizing music: %v", err)
 	}
-	return outputBuffer.Bytes()
+
+	return &song, nil
 }

@@ -7,6 +7,8 @@ require (
 	github.com/joho/godotenv v1.4.0
 	github.com/modfy/fluent-ffmpeg v0.1.0
 	github.com/sirupsen/logrus v1.8.1
+	gorm.io/driver/postgres v1.2.3
+	gorm.io/gorm v1.22.5
 )
 
 require (
@@ -27,6 +29,4 @@ require (
 	golang.org/x/crypto v0.0.0-20220112180741-5e0467b6c7ce // indirect
 	golang.org/x/sys v0.0.0-20210615035016-665e8c7367d1 // indirect
 	golang.org/x/text v0.3.7 // indirect
-	gorm.io/driver/postgres v1.2.3 // indirect
-	gorm.io/gorm v1.22.5 // indirect
 )

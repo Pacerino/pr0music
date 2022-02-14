@@ -13,12 +13,15 @@ type DB struct {
 	*gorm.DB
 }
 
-func Connect() (*DB, error) {
+func init() {
 	for _, env := range []string{"DB_HOST", "DB_USER", "DB_PASS", "DB_DATABASE", "DB_PORT", "DB_SSL"} {
 		if len(os.Getenv(env)) == 0 {
 			log.Fatal(fmt.Sprintf("Missing %s from environment", env))
 		}
 	}
+}
+
+func Connect() (*DB, error) {
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
 		os.Getenv("DB_HOST"),
 		os.Getenv("DB_USER"),
