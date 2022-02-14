@@ -74,6 +74,7 @@ func main() {
 		session: session,
 		db:      db,
 		audd:    audd.NewClient(apiToken),
+		msgChan: make(chan pr0gramm.Message),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
