@@ -61,29 +61,31 @@ func main() {
 func (s *SauceSession) commentWorker(wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	msgResp, err := s.session.GetComments()
-	logrus.Debug("check Pr0gramm comments")
-	if err != nil {
-		logrus.WithError(err).Info("failed fetching comments")
-		return
-	}
-
-	for _, msg := range msgResp.Messages {
-		// Skip already read comments
-		if msg.Read == 1 {
+	for range time.Tick(5 * time.Second) {
+		msgResp, err := s.session.GetComments()
+		logrus.Debug("check Pr0gramm comments")
+		if err != nil {
+			logrus.WithError(err).Info("failed fetching comments")
 			continue
 		}
 
-		// Check if bot was pinged
-		if !strings.Contains(strings.ToLower(msg.Message), "@sauce") {
-			continue
+		for _, msg := range msgResp.Messages {
+			// Skip already read comments
+			if msg.Read == 1 {
+				continue
+			}
+
+			// Check if bot was pinged
+			if !strings.Contains(strings.ToLower(msg.Message), "@sauce") {
+				continue
+			}
+
+			logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).
+				Debug(fmt.Sprintf("Bot was marked by %s", msg.Name))
+
+			// create a copy of the message to take a valid pointer
+			s.msgChan <- msg
 		}
-
-		logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).
-			Debug(fmt.Sprintf("Bot was marked by %s", msg.Name))
-
-		// create a copy of the message to take a valid pointer
-		s.msgChan <- msg
 	}
 }
 
