@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"main/database"
-	"main/pr0gramm"
-	"main/recognition"
+	"github.com/AudDMusic/audd-go"
+	"github.com/Pacerino/pr0music/pr0gramm"
+	"gorm.io/gorm"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,18 +19,44 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const maxWorkers = 10
+
 type SauceSession struct {
 	session *pr0gramm.Session
-	db      *database.DB
+	db      *gorm.DB
 	msgChan chan pr0gramm.Message
+	audd    *audd.Client
+}
+
+func init() {
+	logrus.SetLevel(logrus.DebugLevel)
+	if err := godotenv.Load(); err != nil {
+		panic(err)
+	}
+
+	for _, env := range []string{"DB_HOST", "DB_USER", "DB_PASS", "DB_DATABASE", "DB_PORT", "DB_SSL"} {
+		if len(os.Getenv(env)) == 0 {
+			logrus.Fatal(fmt.Sprintf("Missing %s from environment", env))
+		}
+	}
 }
 
 func main() {
-	godotenv.Load()
-	logrus.SetLevel(logrus.DebugLevel)
-	db, err := database.Connect()
+	db, err := connectDB(fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
+		os.Getenv("DB_HOST"),
+		os.Getenv("DB_USER"),
+		os.Getenv("DB_PASS"),
+		os.Getenv("DB_DATABASE"),
+		os.Getenv("DB_PORT"),
+		os.Getenv("DB_SSL"),
+	))
 	if err != nil {
 		logrus.WithError(err).Error("Error while connecting to a database!")
+	}
+
+	apiToken := os.Getenv("AUDD_API_TOKEN")
+	if len(apiToken) == 0 {
+		log.Fatal("Missing AUDD_API_TOKEN from environment")
 	}
 
 	session := pr0gramm.NewSession(http.Client{Timeout: 10 * time.Second})
@@ -46,6 +73,7 @@ func main() {
 	ss := SauceSession{
 		session: session,
 		db:      db,
+		audd:    audd.NewClient(apiToken),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -54,7 +82,7 @@ func main() {
 	go ss.commentWorker(ctx, &cwg)
 
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for i := 0; i < maxWorkers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -116,7 +144,7 @@ func (s *SauceSession) commentWorker(ctx context.Context, wg *sync.WaitGroup) {
 }
 
 func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
-	var item database.Items
+	var item Items
 	err := s.db.Find(&item, "item_id", msg.ItemID).Error
 	if err != nil {
 		logrus.WithError(err).Error("Could not check database for post")
@@ -164,7 +192,7 @@ func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
 		return
 	}
 
-	message, dbItem, err := findSong(msg, sourceURL)
+	message, dbItem, err := s.findSong(msg, sourceURL)
 	if err != nil {
 		logrus.WithError(err).Error("could not fetch song metdata")
 		return
@@ -199,9 +227,9 @@ func fetchThumb(thumb string) (string, error) {
 	return url, nil
 }
 
-func findSong(msg *pr0gramm.Message, sourceURL string) (string, *database.Items, error) {
+func (s *SauceSession) findSong(msg *pr0gramm.Message, sourceURL string) (string, *Items, error) {
 	dt := time.Now().Format("02.01.2006 um 15:04")
-	meta, err := recognition.DetectMusic(sourceURL)
+	meta, err := s.detectMusic(sourceURL)
 	if err != nil {
 		return "", nil, err
 	}
@@ -209,17 +237,17 @@ func findSong(msg *pr0gramm.Message, sourceURL string) (string, *database.Items,
 	if meta != nil {
 		// Metadaten gefunden
 		logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("Metadata was found")
-		dbItem := database.Items{
+		dbItem := Items{
 			ItemID: msg.ItemID,
 			Title:  meta.Title,
 			Album:  meta.Album,
 			Artist: meta.Artist,
 			Url:    meta.Url,
-			Metadata: database.Metadata{
+			Metadata: ItemMetadata{
 				SpotifyURL: meta.Links.Spotify,
-				SpotifyID:  meta.IDS.Spotify,
+				SpotifyID:  meta.IDs.Spotify,
 				DeezerURL:  meta.Links.Deezer,
-				DeezerID:   strconv.Itoa(meta.IDS.Deezer),
+				DeezerID:   strconv.Itoa(meta.IDs.Deezer),
 			},
 		}
 
@@ -237,9 +265,43 @@ func findSong(msg *pr0gramm.Message, sourceURL string) (string, *database.Items,
 	// Keine Metadaten gefunden
 	logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("No metadata found")
 	message := fmt.Sprintf("Es wurden keine Informationen zu dem Lied gefunden\n\nZeitpunkt der Überprüfung %s", dt)
-	dbItem := database.Items{
+	dbItem := Items{
 		ItemID: msg.ItemID,
 	}
 
 	return message, &dbItem, nil
+}
+
+func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
+	songInfo, err := s.AnalyzeVideo(url)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(songInfo.Title) > 0 {
+		m := &RecognizedMetadata{
+			Title:  songInfo.Title,
+			Album:  songInfo.Album,
+			Artist: songInfo.Artist,
+			Url:    songInfo.SongLink,
+		}
+
+		if songInfo.AppleMusic != nil {
+			m.Links.AppleMusic = songInfo.AppleMusic.URL
+		}
+
+		if songInfo.Deezer != nil {
+			m.Links.Deezer = songInfo.Deezer.Link
+			m.IDs.Deezer = songInfo.Deezer.ID
+		}
+
+		if songInfo.Spotify != nil {
+			m.Links.Spotify = songInfo.Spotify.ExternalUrls.Spotify
+			m.IDs.Spotify = songInfo.Spotify.ID
+		}
+
+		return m, nil
+	}
+
+	return nil, nil
 }

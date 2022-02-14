@@ -1,4 +1,4 @@
-module main
+module github.com/Pacerino/pr0music
 
 go 1.17
 
