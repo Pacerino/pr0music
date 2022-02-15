@@ -30,7 +30,7 @@ type SauceSession struct {
 
 func init() {
 	logrus.SetLevel(logrus.DebugLevel)
-	if err := godotenv.Load(); err != nil {
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		panic(err)
 	}
 
