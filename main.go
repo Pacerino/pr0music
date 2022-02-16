@@ -29,9 +29,23 @@ type SauceSession struct {
 }
 
 func init() {
-	logrus.SetLevel(logrus.DebugLevel)
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		panic(err)
+	}
+
+	if len(os.Getenv("LOG_LEVEL")) > 0 {
+		switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
+		case "error":
+			logrus.SetLevel(logrus.ErrorLevel)
+		case "fatal":
+			logrus.SetLevel(logrus.FatalLevel)
+		case "info":
+			logrus.SetLevel(logrus.InfoLevel)
+		case "debug":
+			logrus.SetLevel(logrus.DebugLevel)
+		default:
+			logrus.SetLevel(logrus.InfoLevel)
+		}
 	}
 
 	for _, env := range []string{"DB_HOST", "DB_USER", "DB_PASS", "DB_DATABASE", "DB_PORT", "DB_SSL"} {
