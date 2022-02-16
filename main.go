@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"github.com/AudDMusic/audd-go"
 	"github.com/Pacerino/pr0music/pr0gramm"
+	fluentffmpeg "github.com/modfy/fluent-ffmpeg"
 	"gorm.io/gorm"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -263,10 +265,42 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, *Items, error) {
 	return message, &Items{ItemID: msg.ItemID}, nil
 }
 
-func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
-	songInfo, err := s.audd.RecognizeByUrl(url, "apple_music,deezer,spotify", nil)
+func (s *SauceSession) convertToAudio(url string) (*audd.RecognitionResult, error) {
+	resp, err := http.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("recognizing music: %v", err)
+		return nil, fmt.Errorf("downloading video: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("invalid status %q: %v", resp.Status, url)
+	}
+
+	reader, writer := io.Pipe()
+	go func() {
+		err := fluentffmpeg.NewCommand("").
+			PipeInput(resp.Body).
+			OutputFormat("mp3").
+			PipeOutput(writer).
+			Run()
+		if err != nil {
+			logrus.WithError(writer.CloseWithError(err)).Error("Error while extracting the audio track")
+		}
+		writer.Close()
+	}()
+
+	song, err := s.audd.RecognizeByFile(reader, "apple_music,deezer,spotify", nil)
+	if err != nil {
+		return nil, fmt.Errorf("recognizing music: %v", reader.CloseWithError(err))
+	}
+
+	return &song, nil
+}
+
+func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
+	songInfo, err := s.convertToAudio(url)
+	if err != nil {
+		return nil, err
 	}
 
 	if len(songInfo.Title) > 0 {
