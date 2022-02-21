@@ -264,7 +264,7 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, *Items, error) {
 
 		message := fmt.Sprintf("Es wurden folgende Informationen dazu gefunden:\n%s - %s\nAus dem Album: %s\n\nHier ist ein Link: %s\nZeitpunkt der Überprüfung %s",
 			meta.Title,
-			meta.Album,
+			meta.Artist,
 			meta.Album,
 			meta.Url,
 			dt,
