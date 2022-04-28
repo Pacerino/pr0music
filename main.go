@@ -231,9 +231,9 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, *Items, error) {
 		return "", nil, fmt.Errorf("fetching thumb url: %v", err)
 	}
 
-	if resp.StatusCode == http.StatusNotFound {
+	/* if resp.StatusCode == http.StatusNotFound {
 		return "Sag mal, raffst du dat nicht? Dit ist kein Video! Nur Idioten im Internet...", &Items{ItemID: msg.ItemID}, nil
-	}
+	} */
 
 	if resp.StatusCode != http.StatusOK {
 		return "", nil, fmt.Errorf("invalid status %q: %v", resp.Status, url)
