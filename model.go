@@ -38,6 +38,6 @@ type Comments struct {
 	Down      int
 	Content   string
 	Created   *time.Time
-	ItemID    int `gorm:"not null;index;unique"`
+	ItemID    int `gorm:"not null"`
 	Thumb     string
 }
