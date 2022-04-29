@@ -3,10 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/AudDMusic/audd-go"
-	"github.com/Pacerino/pr0music/pr0gramm"
-	fluentffmpeg "github.com/modfy/fluent-ffmpeg"
-	"gorm.io/gorm"
 	"io"
 	"log"
 	"net/http"
@@ -16,6 +12,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/AudDMusic/audd-go"
+	"github.com/Pacerino/pr0music/pr0gramm"
+	fluentffmpeg "github.com/modfy/fluent-ffmpeg"
+	"gorm.io/gorm"
 
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
@@ -203,7 +204,7 @@ func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
 	// Post ist nicht in der Datenbank
 	logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("Post has never been queried, searching for the music")
 
-	message, dbItem, err := s.findSong(msg)
+	message, tags, dbItem, err := s.findSong(msg)
 	if err != nil {
 		logrus.WithError(err).Error("could not fetch song metdata")
 		return
@@ -220,15 +221,21 @@ func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
 		return
 	}
 
+	_, err = s.session.AddTag(msg.ItemID, tags)
+	if err != nil {
+		logrus.WithError(err).Error("Could not add tags")
+		return
+	}
+
 	logrus.Info("Comment written")
 	return
 }
 
-func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, *Items, error) {
+func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items, error) {
 	url := fmt.Sprintf("https://vid.pr0gramm.com/%s.mp4", strings.Split(msg.Thumb, ".")[0])
 	resp, err := http.Head(url)
 	if err != nil {
-		return "", nil, fmt.Errorf("fetching thumb url: %v", err)
+		return "", nil, nil, fmt.Errorf("fetching thumb url: %v", err)
 	}
 
 	/* if resp.StatusCode == http.StatusNotFound {
@@ -236,13 +243,18 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, *Items, error) {
 	} */
 
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, fmt.Errorf("invalid status %q: %v", resp.Status, url)
+		return "", nil, nil, fmt.Errorf("invalid status %q: %v", resp.Status, url)
 	}
 
-	dt := time.Now().Format("02.01.2006 um 15:04")
+	cstBer, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("getting timezone: %v", err)
+	}
+	dt := time.Now().In(cstBer).Format("02.01.2006 um 15:04")
+
 	meta, err := s.detectMusic(url)
 	if err != nil {
-		return "", nil, err
+		return "", nil, nil, err
 	}
 
 	if meta != nil {
@@ -269,14 +281,15 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, *Items, error) {
 			meta.Url,
 			dt,
 		)
+		tags := []string{meta.Title, meta.Artist, fmt.Sprintf("%s - %s", meta.Artist, meta.Title)}
 
-		return message, &dbItem, nil
+		return message, tags, &dbItem, nil
 	}
 
 	// Keine Metadaten gefunden
 	logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("No metadata found")
 	message := fmt.Sprintf("Es wurden keine Informationen zu dem Lied gefunden\n\nZeitpunkt der Überprüfung %s", dt)
-	return message, &Items{ItemID: msg.ItemID}, nil
+	return message, nil, &Items{ItemID: msg.ItemID}, nil
 }
 
 func (s *SauceSession) convertToAudio(url string) (*audd.RecognitionResult, error) {

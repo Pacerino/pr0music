@@ -10,6 +10,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strconv"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -139,6 +140,25 @@ func (sess *Session) PostComment(itemID int, content string, replyTo int) (Respo
 	}
 
 	err := sess.apiPOST("/comments/post", data, &response)
+	return response, err
+}
+
+func (sess *Session) AddTag(itemID int, tags []string) (Response, error) {
+	var response Response
+	if itemID == 0 {
+		return response, errors.New("missing itemid")
+	} else if len(tags) == 0 {
+		return response, errors.New("missing tags")
+	}
+	sitemID := strconv.Itoa(itemID)
+
+	data := url.Values{
+		"tags":   {strings.Join(tags, ",")},
+		"itemId": {sitemID},
+		"submit": {"Tags speichern"},
+	}
+
+	err := sess.apiPOST("/tags/add", data, &response)
 	return response, err
 }
 
