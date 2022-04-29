@@ -15,7 +15,6 @@ import (
 
 	"github.com/AudDMusic/audd-go"
 	"github.com/Pacerino/pr0music/pr0gramm"
-	"github.com/mileusna/crontab"
 	fluentffmpeg "github.com/modfy/fluent-ffmpeg"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -98,11 +97,13 @@ func main() {
 		after:   pr0gramm.Timestamp{time.Unix(1623837600, 0)},
 	}
 
-	ctab := crontab.New()
+	/* ctab := crontab.New()
 	err = ctab.AddJob(os.Getenv("CRONJOB"), ss.getBotComments)
 	if err != nil {
 		logrus.WithError(err).Fatal("Could not add cronjob!")
-	}
+	} */
+
+	ss.getBotComments()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var cwg sync.WaitGroup
@@ -323,6 +324,7 @@ func (s *SauceSession) getBotComments() error {
 				Thumb:     c.Thumbnail,
 			}
 			s.db.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "comment_id"}},
 				UpdateAll: true,
 			}).Create(&comm)
 			logrus.Infof("Inserted Comment with ID: %d", c.Id)
