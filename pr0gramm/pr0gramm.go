@@ -82,7 +82,7 @@ func (sess *Session) apiPOST(path string, data url.Values, target interface{}) e
 	uri := "https://pr0gramm.com/api" + path
 	nonce, err := sess.GetNonce()
 	if err != nil {
-		log.WithError(err)
+		return err
 	}
 	data.Add("_nonce", nonce)
 	response, err := sess.client.PostForm(uri, data)
@@ -121,10 +121,11 @@ func (sess *Session) GetComments() (MessagesResponse, error) {
 }
 
 func (sess *Session) PostComment(itemID int, content string, replyTo int) (Response, error) {
+	var response Response
 	if itemID == 0 {
-		log.WithError(errors.New("missing itemid"))
+		return response, errors.New("missing itemid")
 	} else if len(content) == 0 {
-		log.WithError(errors.New("missing content"))
+		return response, errors.New("missing content")
 	}
 	sitemID := strconv.Itoa(itemID)
 
@@ -137,16 +138,16 @@ func (sess *Session) PostComment(itemID int, content string, replyTo int) (Respo
 		data.Add("parentId", sreplyTo)
 	}
 
-	var response Response
 	err := sess.apiPOST("/comments/post", data, &response)
 	return response, err
 }
 
 func (sess *Session) SendMessage(recipientName string, comment string) (Response, error) {
+	var response Response
 	if len(recipientName) == 0 {
-		log.WithError(errors.New("missing recipientName"))
+		return response, errors.New("missing recipientName")
 	} else if len(comment) == 0 {
-		log.WithError(errors.New("missing comment"))
+		return response, errors.New("missing comment")
 	}
 
 	data := url.Values{
@@ -154,7 +155,6 @@ func (sess *Session) SendMessage(recipientName string, comment string) (Response
 		"comment":       {comment},
 	}
 
-	var response Response
 	err := sess.apiPOST("/inbox/post", data, &response)
 	return response, err
 }
