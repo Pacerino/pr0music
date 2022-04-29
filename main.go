@@ -15,8 +15,10 @@ import (
 
 	"github.com/AudDMusic/audd-go"
 	"github.com/Pacerino/pr0music/pr0gramm"
+	"github.com/mileusna/crontab"
 	fluentffmpeg "github.com/modfy/fluent-ffmpeg"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
@@ -29,6 +31,7 @@ type SauceSession struct {
 	db      *gorm.DB
 	msgChan chan pr0gramm.Message
 	audd    *audd.Client
+	after   pr0gramm.Timestamp
 }
 
 func init() {
@@ -92,6 +95,13 @@ func main() {
 		db:      db,
 		audd:    audd.NewClient(apiToken),
 		msgChan: make(chan pr0gramm.Message),
+		after:   pr0gramm.Timestamp{time.Unix(1623837600, 0)},
+	}
+
+	ctab := crontab.New()
+	err = ctab.AddJob(os.Getenv("CRONJOB"), ss.getBotComments)
+	if err != nil {
+		logrus.WithError(err).Fatal("Could not add cronjob!")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -290,6 +300,38 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items
 	logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("No metadata found")
 	message := fmt.Sprintf("Es wurden keine Informationen zu dem Lied gefunden\n\nZeitpunkt der Überprüfung %s", dt)
 	return message, nil, &Items{ItemID: msg.ItemID}, nil
+}
+
+func (s *SauceSession) getBotComments() error {
+	for {
+		data, err := s.session.GetUserComments("Sauce", 15, int(s.after.Unix()))
+		if err != nil {
+			return err
+		}
+		for _, c := range data.Comments {
+			if !strings.Contains(c.Content, "Es wurden") {
+				continue
+			}
+			comm := Comments{
+				CommentID: int(c.Id),
+				Up:        c.Up,
+				Down:      c.Down,
+				Content:   c.Content,
+				Created:   &c.Created.Time,
+				ItemID:    int(c.ItemId),
+				Thumb:     c.Thumbnail,
+			}
+			s.db.Clauses(clause.OnConflict{
+				UpdateAll: true,
+			}).Create(&comm)
+			logrus.Infof("Inserted Comment with ID: %d", c.Id)
+		}
+		if !data.HasNewer {
+			break
+		}
+		s.after = data.Comments[len(data.Comments)-1].Created
+	}
+	return nil
 }
 
 func (s *SauceSession) convertToAudio(url string) (*audd.RecognitionResult, error) {

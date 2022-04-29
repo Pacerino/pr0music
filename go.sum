@@ -195,6 +195,8 @@ github.com/mattn/go-colorable v0.1.6/go.mod h1:u6P/XSegPjTcexA+o6vUJrdnUu04hMope
 github.com/mattn/go-isatty v0.0.5/go.mod h1:Iq45c/XA43vh69/j3iqttzPXn0bhXyGjM0Hdxcsrc5s=
 github.com/mattn/go-isatty v0.0.7/go.mod h1:Iq45c/XA43vh69/j3iqttzPXn0bhXyGjM0Hdxcsrc5s=
 github.com/mattn/go-isatty v0.0.12/go.mod h1:cbi8OIDigv2wuxKPP5vlRcQ1OAZbq2CE4Kysco4FUpU=
+github.com/mileusna/crontab v1.2.0 h1:x9ZmE2A4p6CDqMEGQ+GbqsNtnmbdmWMQYShdQu8LvrU=
+github.com/mileusna/crontab v1.2.0/go.mod h1:dbns64w/u3tUnGZGf8pAa76ZqOfeBX4olW4U1ZwExmc=
 github.com/modfy/fluent-ffmpeg v0.1.0 h1:9T191rhSK6KfoDo9Y/+0Tph3khrudvLQEEi05O+ijHA=
 github.com/modfy/fluent-ffmpeg v0.1.0/go.mod h1:GauXGqGYAmYFupCWG8n1eyuLZMKmLxGTGvszYkJ0Oyo=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
