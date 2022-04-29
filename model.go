@@ -32,8 +32,11 @@ type ItemMetadata struct {
 }
 
 type Comments struct {
-	gorm.Model
-	CommentID int `gorm:"unique"`
+	ID        uint
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+	CommentID int            `gorm:"unique;primaryKey"`
 	Up        int
 	Down      int
 	Content   string
