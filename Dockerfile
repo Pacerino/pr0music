@@ -10,6 +10,7 @@ RUN go build -o /go/bin/app/ -v ./...
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 RUN apk add --no-cache ffmpeg
+RUN apk add --no-cache tzdata
 COPY --from=builder /go/bin/app/pr0music /app/pr0music
 ENTRYPOINT /app/pr0music
 LABEL Name=pr0music Version=0.0.1
