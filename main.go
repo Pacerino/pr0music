@@ -303,6 +303,7 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items
 }
 
 func (s *SauceSession) getBotComments() error {
+	s.after = pr0gramm.Timestamp{time.Unix(1623837600, 0)}
 	for {
 		data, err := s.session.GetUserComments("Sauce", 15, int(s.after.Unix()))
 		if err != nil {
