@@ -17,6 +17,7 @@ import (
 	"github.com/Pacerino/pr0music/pr0gramm"
 	"github.com/mileusna/crontab"
 	fluentffmpeg "github.com/modfy/fluent-ffmpeg"
+	"golang.org/x/exp/slices"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -161,6 +162,12 @@ func (s *SauceSession) commentWorker(ctx context.Context, wg *sync.WaitGroup) {
 
 			// Check if bot was pinged
 			if !strings.Contains(strings.ToLower(msg.Message), "@sauce") {
+				continue
+			}
+
+			// Check if bot was pinged by an unwanted individual
+			unwantedUsers := strings.Split(os.Getenv("BANNED_USERS"), ",")
+			if !slices.Contains(unwantedUsers, msg.Name) {
 				continue
 			}
 
