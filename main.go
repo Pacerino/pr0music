@@ -167,7 +167,7 @@ func (s *SauceSession) commentWorker(ctx context.Context, wg *sync.WaitGroup) {
 
 			// Check if bot was pinged by an unwanted individual
 			unwantedUsers := strings.Split(os.Getenv("BANNED_USERS"), ",")
-			if !slices.Contains(unwantedUsers, msg.Name) {
+			if slices.Contains(unwantedUsers, msg.Name) {
 				continue
 			}
 
