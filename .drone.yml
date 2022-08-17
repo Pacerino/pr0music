@@ -14,4 +14,4 @@ steps:
     repo: reg.s-c.systems/pr0/pr0music
     auto_tag: true
   when:
-    event: [push, tag]
+    event: [push, tag, branch]
