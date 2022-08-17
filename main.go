@@ -1,19 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/AudDMusic/audd-go"
+	"github.com/Pacerino/pr0music/acrcloud"
 	"github.com/Pacerino/pr0music/pr0gramm"
 	"github.com/mileusna/crontab"
 	fluentffmpeg "github.com/modfy/fluent-ffmpeg"
@@ -31,7 +32,7 @@ type SauceSession struct {
 	session *pr0gramm.Session
 	db      *gorm.DB
 	msgChan chan pr0gramm.Message
-	audd    *audd.Client
+	acr     *acrcloud.Recognizer
 	after   pr0gramm.Timestamp
 }
 
@@ -75,9 +76,26 @@ func main() {
 		logrus.WithError(err).Error("Error while connecting to a database!")
 	}
 
-	apiToken := os.Getenv("AUDD_API_TOKEN")
-	if len(apiToken) == 0 {
-		log.Fatal("Missing AUDD_API_TOKEN from environment")
+	apiKey := os.Getenv("ACR_API_KEY")
+	if len(apiKey) == 0 {
+		log.Fatal("Missing ACR_API_KEY from environment")
+	}
+
+	apiSecret := os.Getenv("ACR_API_SECRET")
+	if len(apiSecret) == 0 {
+		log.Fatal("Missing ACR_API_SECRET from environment")
+	}
+
+	apiHost := os.Getenv("ACR_API_HOST")
+	if len(apiHost) == 0 {
+		log.Fatal("Missing ACR_API_HOST from environment")
+	}
+
+	acrConfig := map[string]string{
+		"access_key":     apiKey,
+		"access_secret":  apiSecret,
+		"host":           apiHost,
+		"recognize_type": acrcloud.ACR_OPT_REC_AUDIO,
 	}
 
 	session := pr0gramm.NewSession(http.Client{Timeout: 10 * time.Second})
@@ -94,7 +112,7 @@ func main() {
 	ss := SauceSession{
 		session: session,
 		db:      db,
-		audd:    audd.NewClient(apiToken),
+		acr:     acrcloud.NewRecognizer(acrConfig),
 		msgChan: make(chan pr0gramm.Message),
 		after:   pr0gramm.Timestamp{time.Unix(1623837600, 0)},
 	}
@@ -285,11 +303,14 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items
 			Album:  meta.Album,
 			Artist: meta.Artist,
 			Url:    meta.Url,
+			AcrID:  meta.AcrID,
 			Metadata: ItemMetadata{
 				SpotifyURL: meta.Links.Spotify,
 				SpotifyID:  meta.IDs.Spotify,
 				DeezerURL:  meta.Links.Deezer,
-				DeezerID:   strconv.Itoa(meta.IDs.Deezer),
+				DeezerID:   meta.IDs.Deezer,
+				YoutubeURL: meta.Links.YouTube,
+				YoutubeID:  meta.IDs.YouTube,
 			},
 		}
 
@@ -345,7 +366,7 @@ func (s *SauceSession) getBotComments() error {
 	return nil
 }
 
-func (s *SauceSession) convertToAudio(url string) (*audd.RecognitionResult, error) {
+func (s *SauceSession) convertToAudio(url string) (*ACRRecognitionResult, error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("downloading video: %v", err)
@@ -369,43 +390,50 @@ func (s *SauceSession) convertToAudio(url string) (*audd.RecognitionResult, erro
 		writer.Close()
 	}()
 
-	song, err := s.audd.RecognizeByFile(reader, "apple_music,deezer,spotify", nil)
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(reader)
+	var song ACRRecognitionResult
+	resultString, _, err := s.acr.RecognizeByFileBuffer(buf.Bytes(), 0, 30, nil)
 	if err != nil {
 		return nil, fmt.Errorf("recognizing music: %v", reader.CloseWithError(err))
 	}
-
+	json.Unmarshal([]byte(resultString), &song)
 	return &song, nil
 }
 
 func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
-	songInfo, err := s.convertToAudio(url)
+	recognitionResult, err := s.convertToAudio(url)
 	if err != nil {
 		return nil, err
 	}
+	if len(recognitionResult.Metadata.Music) > 0 {
+		songInfo := recognitionResult.Metadata.Music[0]
+		if len(songInfo.Title) > 0 {
+			m := &RecognizedMetadata{
+				Title:  songInfo.Title,
+				Album:  songInfo.Album.Name,
+				Artist: songInfo.Artists[0].Name,
+				AcrID:  songInfo.Acrid,
+				Url:    fmt.Sprintf("https://pr0sauce.info/%s", songInfo.Acrid),
+			}
 
-	if len(songInfo.Title) > 0 {
-		m := &RecognizedMetadata{
-			Title:  songInfo.Title,
-			Album:  songInfo.Album,
-			Artist: songInfo.Artist,
-			Url:    songInfo.SongLink,
+			if songInfo.ExternalMetadata.Deezer.Track.ID != "" {
+				m.Links.Deezer = fmt.Sprintf("https://www.deezer.com/track/%s", songInfo.ExternalMetadata.Deezer.Track.ID)
+				m.IDs.Deezer = songInfo.ExternalMetadata.Deezer.Track.ID
+			}
+
+			if songInfo.ExternalMetadata.Spotify.Track.ID != "" {
+				m.Links.Spotify = fmt.Sprintf("https://www.spotify.com/track/%s", songInfo.ExternalMetadata.Spotify.Track.ID)
+				m.IDs.Spotify = songInfo.ExternalMetadata.Spotify.Track.ID
+			}
+
+			if songInfo.ExternalMetadata.Youtube.Vid != "" {
+				m.Links.YouTube = fmt.Sprintf("https://www.youtube.com/watch?v=%s", songInfo.ExternalMetadata.Youtube.Vid)
+				m.IDs.YouTube = songInfo.ExternalMetadata.Youtube.Vid
+			}
+
+			return m, nil
 		}
-
-		if songInfo.AppleMusic != nil {
-			m.Links.AppleMusic = songInfo.AppleMusic.URL
-		}
-
-		if songInfo.Deezer != nil {
-			m.Links.Deezer = songInfo.Deezer.Link
-			m.IDs.Deezer = songInfo.Deezer.ID
-		}
-
-		if songInfo.Spotify != nil {
-			m.Links.Spotify = songInfo.Spotify.ExternalUrls.Spotify
-			m.IDs.Spotify = songInfo.Spotify.ID
-		}
-
-		return m, nil
 	}
 
 	return nil, nil
