@@ -17,6 +17,9 @@
 # Clone the repository 
 git clone https://github.com/Pacerino/pr0music
 
+# Switch the branch
+git checkout -q acr_cloud
+
 # Enter into the directory
 cd pr0music
 
