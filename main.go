@@ -297,6 +297,7 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items
 	if meta != nil {
 		// Metadaten gefunden
 		logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("Metadata was found")
+		meta.Url = fmt.Sprintf("https://pr0sauce.info/%v", msg.ItemID) // Set URL with the ItemID, creates shorter links!
 		dbItem := Items{
 			ItemID: msg.ItemID,
 			Title:  meta.Title,
@@ -414,7 +415,7 @@ func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
 				Album:  songInfo.Album.Name,
 				Artist: songInfo.Artists[0].Name,
 				AcrID:  songInfo.Acrid,
-				Url:    fmt.Sprintf("https://pr0sauce.info/%s", songInfo.Acrid),
+				/* Url:    fmt.Sprintf("https://pr0sauce.info/%s", songInfo.Acrid), */
 			}
 
 			if songInfo.ExternalMetadata.Deezer.Track.ID != "" {
