@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -288,8 +287,6 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items
 			Metadata: ItemMetadata{
 				SpotifyURL: meta.Links.Spotify,
 				SpotifyID:  meta.IDs.Spotify,
-				DeezerURL:  meta.Links.Deezer,
-				DeezerID:   strconv.Itoa(meta.IDs.Deezer),
 			},
 		}
 
