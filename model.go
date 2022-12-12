@@ -18,18 +18,10 @@ type Items struct {
 }
 
 type ItemMetadata struct {
-	DeezerURL     string
-	DeezerID      string
-	SoundcloudURL string
-	SoundcloudID  string
-	SpotifyURL    string
-	SpotifyID     string
-	YoutubeURL    string
-	YoutubeID     string
-	TidalURL      string
-	TidalID       string
-	ApplemusicURL string
-	ApplemusicID  string
+	SpotifyURL string
+	SpotifyID  string
+	YoutubeURL string
+	YoutubeID  string
 }
 
 type Comments struct {

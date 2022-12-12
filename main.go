@@ -308,8 +308,6 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items
 			Metadata: ItemMetadata{
 				SpotifyURL: meta.Links.Spotify,
 				SpotifyID:  meta.IDs.Spotify,
-				DeezerURL:  meta.Links.Deezer,
-				DeezerID:   meta.IDs.Deezer,
 				YoutubeURL: meta.Links.YouTube,
 				YoutubeID:  meta.IDs.YouTube,
 			},
@@ -416,11 +414,6 @@ func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
 				Artist: songInfo.Artists[0].Name,
 				AcrID:  songInfo.Acrid,
 				/* Url:    fmt.Sprintf("https://pr0sauce.info/%s", songInfo.Acrid), */
-			}
-
-			if songInfo.ExternalMetadata.Deezer.Track.ID != "" {
-				m.Links.Deezer = fmt.Sprintf("https://www.deezer.com/track/%s", songInfo.ExternalMetadata.Deezer.Track.ID)
-				m.IDs.Deezer = songInfo.ExternalMetadata.Deezer.Track.ID
 			}
 
 			if songInfo.ExternalMetadata.Spotify.Track.ID != "" {
