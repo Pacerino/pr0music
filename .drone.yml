@@ -13,6 +13,3 @@ steps:
       from_secret: registry_password
     repo: reg.s-c.systems/pr0/pr0music
     auto_tag: true
-  when:
-    event: [push, tag]
-    branch: [master,acr_cloud]
