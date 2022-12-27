@@ -417,7 +417,7 @@ func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
 			}
 
 			if songInfo.ExternalMetadata.Spotify.Track.ID != "" {
-				m.Links.Spotify = fmt.Sprintf("https://www.spotify.com/track/%s", songInfo.ExternalMetadata.Spotify.Track.ID)
+				m.Links.Spotify = fmt.Sprintf("https://open.spotify.com/track/%s", songInfo.ExternalMetadata.Spotify.Track.ID)
 				m.IDs.Spotify = songInfo.ExternalMetadata.Spotify.Track.ID
 			}
 
