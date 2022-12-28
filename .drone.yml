@@ -12,4 +12,3 @@ steps:
     password:
       from_secret: registry_password
     repo: reg.s-c.systems/pr0/pr0music
-    auto_tag: true
