@@ -15,12 +15,12 @@ import (
 	"time"
 
 	"github.com/Pacerino/pr0music/acrcloud"
+	"github.com/Pacerino/pr0music/ent"
+	"github.com/Pacerino/pr0music/ent/items"
 	"github.com/Pacerino/pr0music/pr0gramm"
 	"github.com/mileusna/crontab"
 	fluentffmpeg "github.com/modfy/fluent-ffmpeg"
 	"golang.org/x/exp/slices"
-	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"github.com/joho/godotenv"
 	"github.com/sirupsen/logrus"
@@ -30,10 +30,11 @@ const maxWorkers = 10
 
 type SauceSession struct {
 	session *pr0gramm.Session
-	db      *gorm.DB
+	db      *ent.Client
 	msgChan chan pr0gramm.Message
 	acr     *acrcloud.Recognizer
 	after   pr0gramm.Timestamp
+	ctx     context.Context
 }
 
 func init() {
@@ -56,7 +57,7 @@ func init() {
 		}
 	}
 
-	for _, env := range []string{"DB_HOST", "DB_USER", "DB_PASS", "DB_DATABASE", "DB_PORT", "DB_SSL"} {
+	for _, env := range []string{"DB_HOST", "DB_USER", "DB_PASS", "DB_DATABASE", "DB_PORT"} {
 		if len(os.Getenv(env)) == 0 {
 			logrus.Fatal(fmt.Sprintf("Missing %s from environment", env))
 		}
@@ -64,13 +65,12 @@ func init() {
 }
 
 func main() {
-	db, err := connectDB(fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
-		os.Getenv("DB_HOST"),
+	db, err := connectDB(fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=True",
 		os.Getenv("DB_USER"),
 		os.Getenv("DB_PASS"),
-		os.Getenv("DB_DATABASE"),
+		os.Getenv("DB_HOST"),
 		os.Getenv("DB_PORT"),
-		os.Getenv("DB_SSL"),
+		os.Getenv("DB_DATABASE"),
 	))
 	if err != nil {
 		logrus.WithError(err).Error("Error while connecting to a database!")
@@ -108,13 +108,14 @@ func main() {
 			return
 		}
 	}
-
+	dbCtx := context.Background()
 	ss := SauceSession{
 		session: session,
 		db:      db,
 		acr:     acrcloud.NewRecognizer(acrConfig),
 		msgChan: make(chan pr0gramm.Message),
-		after:   pr0gramm.Timestamp{time.Unix(1623837600, 0)},
+		after:   pr0gramm.Timestamp{Time: time.Unix(1623837600, 0)},
+		ctx:     dbCtx,
 	}
 
 	ctab := crontab.New()
@@ -199,8 +200,7 @@ func (s *SauceSession) commentWorker(ctx context.Context, wg *sync.WaitGroup) {
 }
 
 func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
-	var item Items
-	err := s.db.Find(&item, "item_id", msg.ItemID).Error
+	item, err := s.db.Items.Query().Where(items.ItemIDEQ(msg.ItemID)).First(s.ctx)
 	if err != nil {
 		logrus.WithError(err).Error("Could not check database for post")
 		return
@@ -218,7 +218,7 @@ func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
 				item.Title,
 				item.Album,
 				item.Artist,
-				item.Url,
+				item.URL,
 			)
 		} else {
 			// es ist kein Titel vorhanden, sende Nachricht ohne Metadaten
@@ -247,7 +247,20 @@ func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
 		return
 	}
 
-	if err := s.db.Create(dbItem).Error; err != nil {
+	tmpItem := s.db.Items.
+		Create().
+		SetItemID(dbItem.ItemID).
+		SetTitle(dbItem.Title).
+		SetAlbum(dbItem.Album).
+		SetArtist(dbItem.Artist).
+		SetURL(dbItem.URL).
+		SetAcrID(dbItem.AcrID).
+		SetSpotifyURL(dbItem.SpotifyURL).
+		SetSpotifyID(dbItem.SpotifyID).
+		SetYoutubeID(dbItem.YoutubeID).
+		SetYoutubeURL(dbItem.YoutubeURL)
+
+	if _, err := tmpItem.Save(s.ctx); err != nil {
 		logrus.WithError(err).Error("Error saving metadata to the database!")
 		return
 	}
@@ -265,10 +278,9 @@ func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
 	}
 
 	logrus.Info("Comment written")
-	return
 }
 
-func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items, error) {
+func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *ent.Items, error) {
 	url := fmt.Sprintf("https://vid.pr0gramm.com/%s.mp4", strings.Split(msg.Thumb, ".")[0])
 	resp, err := http.Head(url)
 	if err != nil {
@@ -298,19 +310,17 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items
 		// Metadaten gefunden
 		logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("Metadata was found")
 		meta.Url = fmt.Sprintf("https://pr0sauce.info/%v", msg.ItemID) // Set URL with the ItemID, creates shorter links!
-		dbItem := Items{
-			ItemID: msg.ItemID,
-			Title:  meta.Title,
-			Album:  meta.Album,
-			Artist: meta.Artist,
-			Url:    meta.Url,
-			AcrID:  meta.AcrID,
-			Metadata: ItemMetadata{
-				SpotifyURL: meta.Links.Spotify,
-				SpotifyID:  meta.IDs.Spotify,
-				YoutubeURL: meta.Links.YouTube,
-				YoutubeID:  meta.IDs.YouTube,
-			},
+		dbItem := ent.Items{
+			ItemID:     msg.ItemID,
+			Title:      meta.Title,
+			Album:      meta.Album,
+			Artist:     meta.Artist,
+			URL:        meta.Url,
+			AcrID:      meta.AcrID,
+			SpotifyURL: meta.Links.Spotify,
+			SpotifyID:  meta.IDs.Spotify,
+			YoutubeURL: meta.Links.YouTube,
+			YoutubeID:  meta.IDs.YouTube,
 		}
 
 		message := fmt.Sprintf("Es wurden folgende Informationen dazu gefunden:\n%s - %s\nAus dem Album: %s\n\nHier ist ein Link: %s\nZeitpunkt der Überprüfung %s",
@@ -328,11 +338,11 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items
 	// Keine Metadaten gefunden
 	logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("No metadata found")
 	message := fmt.Sprintf("Es wurden keine Informationen zu dem Lied gefunden\n\nZeitpunkt der Überprüfung %s", dt)
-	return message, nil, &Items{ItemID: msg.ItemID}, nil
+	return message, nil, &ent.Items{ItemID: msg.ItemID}, nil
 }
 
 func (s *SauceSession) getBotComments() error {
-	s.after = pr0gramm.Timestamp{time.Unix(1623837600, 0)}
+	s.after = pr0gramm.Timestamp{Time: time.Unix(1623837600, 0)}
 	for {
 		data, err := s.session.GetUserComments("Sauce", 15, int(s.after.Unix()))
 		if err != nil {
@@ -342,19 +352,21 @@ func (s *SauceSession) getBotComments() error {
 			if !strings.Contains(c.Content, "Es wurden") {
 				continue
 			}
-			comm := Comments{
-				CommentID: int(c.Id),
-				Up:        c.Up,
-				Down:      c.Down,
-				Content:   c.Content,
-				Created:   &c.Created.Time,
-				ItemID:    int(c.ItemId),
-				Thumb:     c.Thumbnail,
+			comm := s.db.Comments.
+				Create().
+				SetCommentID(int(c.Id)).
+				SetUp(c.Up).
+				SetDown(c.Down).
+				SetContent(c.Content).
+				SetCreated(c.Created.Time).
+				SetItemID(int(c.ItemId)).
+				SetThumb(c.Thumbnail).
+				OnConflict().
+				UpdateNewValues()
+
+			if err := comm.Exec(s.ctx); err != nil {
+				logrus.WithError(err).Error("Error saving comment to the database!")
 			}
-			s.db.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "comment_id"}},
-				UpdateAll: true,
-			}).Create(&comm)
 			logrus.Infof("Inserted Comment with ID: %d", c.Id)
 		}
 		if !data.HasNewer {
