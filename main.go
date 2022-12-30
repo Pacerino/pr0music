@@ -9,16 +9,17 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/Pacerino/pr0music/acrcloud"
 	"github.com/Pacerino/pr0music/ent"
 	"github.com/Pacerino/pr0music/ent/items"
+	"github.com/Pacerino/pr0music/graph"
 	"github.com/Pacerino/pr0music/pr0gramm"
-	"github.com/mileusna/crontab"
 	fluentffmpeg "github.com/modfy/fluent-ffmpeg"
 	"golang.org/x/exp/slices"
 
@@ -98,7 +99,7 @@ func main() {
 		"recognize_type": acrcloud.ACR_OPT_REC_AUDIO,
 	}
 
-	session := pr0gramm.NewSession(http.Client{Timeout: 10 * time.Second})
+	/* session := pr0gramm.NewSession(http.Client{Timeout: 10 * time.Second})
 	if resp, err := session.Login(os.Getenv("PR0_USER"), os.Getenv("PR0_PASSWORD")); err != nil {
 		logrus.WithError(err).Fatal("Error logging in to pr0gramm")
 		return
@@ -107,10 +108,10 @@ func main() {
 			logrus.Fatal("Error logging in to pr0gramm")
 			return
 		}
-	}
+	} */
 	dbCtx := context.Background()
 	ss := SauceSession{
-		session: session,
+		//session: session,
 		db:      db,
 		acr:     acrcloud.NewRecognizer(acrConfig),
 		msgChan: make(chan pr0gramm.Message),
@@ -118,7 +119,9 @@ func main() {
 		ctx:     dbCtx,
 	}
 
-	ctab := crontab.New()
+	ss.startGraphQL()
+
+	/* ctab := crontab.New()
 	err = ctab.AddJob(os.Getenv("CRONJOB"), ss.getBotComments)
 	if err != nil {
 		logrus.WithError(err).Fatal("Could not add cronjob!")
@@ -153,7 +156,30 @@ func main() {
 
 	// close channel and wait for workers to finish
 	close(ss.msgChan)
-	wg.Wait()
+	wg.Wait() */
+}
+
+func (s *SauceSession) startGraphQL() {
+	/* srv := handler.NewDefaultServer(graph.NewSchema(s.db))
+	{
+		e.POST("/query", func(c echo.Context) error {
+			srv.ServeHTTP(c.Response(), c.Request())
+			return nil
+		})
+
+		e.GET("/playground", func(c echo.Context) error {
+			playground.Handler("GraphQL", "/query").ServeHTTP(c.Response(), c.Request())
+			return nil
+		})
+	} */
+	const port = "8080"
+	srv := handler.NewDefaultServer(graph.NewSchema(s.db))
+
+	http.Handle("/", playground.Handler("GraphQL playground", "/query"))
+	http.Handle("/query", srv)
+
+	logrus.Info("connect to http://localhost:%s/ for GraphQL playground", port)
+	go logrus.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
 func (s *SauceSession) commentWorker(ctx context.Context, wg *sync.WaitGroup) {

@@ -63,6 +63,9 @@ func newCommentsPaginateArgs(rv map[string]interface{}) *commentsPaginateArgs {
 	if v := rv[beforeField]; v != nil {
 		args.before = v.(*Cursor)
 	}
+	if v, ok := rv[whereField].(*CommentsWhereInput); ok {
+		args.opts = append(args.opts, WithCommentsFilter(v.Filter))
+	}
 	return args
 }
 
@@ -121,6 +124,9 @@ func newItemsPaginateArgs(rv map[string]interface{}) *itemsPaginateArgs {
 	}
 	if v := rv[beforeField]; v != nil {
 		args.before = v.(*Cursor)
+	}
+	if v, ok := rv[whereField].(*ItemsWhereInput); ok {
+		args.opts = append(args.opts, WithItemsFilter(v.Filter))
 	}
 	return args
 }
