@@ -1,23 +1,32 @@
 package main
 
 import (
-	"context"
-
-	ent "github.com/Pacerino/pr0music/ent"
-
-	_ "github.com/go-sql-driver/mysql"
+	log "github.com/sirupsen/logrus"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
-func connectDB(dsn string) (*ent.Client, error) {
-
-	client, err := ent.Open("mysql", dsn)
+func connectDB(dsn string) (*gorm.DB, error) {
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}
-	//defer client.Close()
-	// Run the auto migration tool.
-	if err := client.Schema.Create(context.Background()); err != nil {
+
+	sql, err := db.DB()
+	if err != nil {
 		return nil, err
 	}
-	return client, nil
+
+	if err := sql.Ping(); err != nil {
+		return nil, err
+	}
+	log.Info("Connected to Database")
+
+	if err := db.AutoMigrate(&Items{}, &Comments{}); err != nil {
+		log.WithError(err).Fatal("Could not migrate Items and/or Comments")
+		return nil, err
+	}
+	log.Debug("Auto Migrated Items and Comments")
+
+	return db, nil
 }
