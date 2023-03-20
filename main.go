@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/Pacerino/pr0music/acrcloud"
+	"github.com/Pacerino/pr0music/odesli"
 	"github.com/Pacerino/pr0music/pr0gramm"
+	"github.com/Pacerino/pr0music/shazam"
 	"github.com/mileusna/crontab"
 	fluentffmpeg "github.com/modfy/fluent-ffmpeg"
 	"golang.org/x/exp/slices"
@@ -56,7 +58,7 @@ func init() {
 		}
 	}
 
-	for _, env := range []string{"DB_HOST", "DB_USER", "DB_PASS", "DB_DATABASE", "DB_PORT", "DB_SSL"} {
+	for _, env := range []string{"DB_HOST", "DB_USER", "DB_PASS", "DB_DATABASE", "DB_PORT", "SHAZAM_ENDPOINT"} {
 		if len(os.Getenv(env)) == 0 {
 			logrus.Fatal(fmt.Sprintf("Missing %s from environment", env))
 		}
@@ -114,7 +116,7 @@ func main() {
 		db:      db,
 		acr:     acrcloud.NewRecognizer(acrConfig),
 		msgChan: make(chan pr0gramm.Message),
-		after:   pr0gramm.Timestamp{time.Unix(1623837600, 0)},
+		after:   pr0gramm.Timestamp{Time: time.Unix(1623837600, 0)},
 	}
 
 	ctab := crontab.New()
@@ -265,7 +267,6 @@ func (s *SauceSession) handleMessage(msg *pr0gramm.Message) {
 	}
 
 	logrus.Info("Comment written")
-	return
 }
 
 func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items, error) {
@@ -332,7 +333,7 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items
 }
 
 func (s *SauceSession) getBotComments() error {
-	s.after = pr0gramm.Timestamp{time.Unix(1623837600, 0)}
+	s.after = pr0gramm.Timestamp{Time: time.Unix(1623837600, 0)}
 	for {
 		data, err := s.session.GetUserComments("Sauce", 15, int(s.after.Unix()))
 		if err != nil {
@@ -401,34 +402,71 @@ func (s *SauceSession) convertToAudio(url string) (*ACRRecognitionResult, error)
 }
 
 func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
-	recognitionResult, err := s.convertToAudio(url)
+	// Try it first with Shazam
+	shazamInfo, err := shazam.Recognize(url)
 	if err != nil {
 		return nil, err
-	}
-	if len(recognitionResult.Metadata.Music) > 0 {
-		songInfo := recognitionResult.Metadata.Music[0]
-		if len(songInfo.Title) > 0 {
-			m := &RecognizedMetadata{
-				Title:  songInfo.Title,
-				Album:  songInfo.Album.Name,
-				Artist: songInfo.Artists[0].Name,
-				AcrID:  songInfo.Acrid,
-				/* Url:    fmt.Sprintf("https://pr0sauce.info/%s", songInfo.Acrid), */
-			}
+	} else if shazamInfo.Track.Title != "" {
+		appleLink, err := shazam.GetAppleMusicLink(shazamInfo)
+		if err != nil {
+			return nil, err
+		}
+		links, err := odesli.GetLinks(appleLink)
+		if err != nil {
+			return nil, err
+		}
+		album, err := shazam.GetAlbum(shazamInfo)
+		if err != nil {
+			return nil, err
+		}
+		// Found with Shazam!
+		m := &RecognizedMetadata{
+			Title:  shazamInfo.Track.Title,
+			Album:  album,
+			Artist: shazamInfo.Track.Subtitle,
+		}
+		if links.LinksByPlatform.Spotify.URL != "" {
+			idslice := strings.Split(links.LinksByPlatform.Spotify.EntityUniqueID, "::")
+			m.Links.Spotify = links.LinksByPlatform.Spotify.URL
+			m.IDs.Spotify = idslice[1]
+		}
 
-			if songInfo.ExternalMetadata.Spotify.Track.ID != "" {
-				m.Links.Spotify = fmt.Sprintf("https://open.spotify.com/track/%s", songInfo.ExternalMetadata.Spotify.Track.ID)
-				m.IDs.Spotify = songInfo.ExternalMetadata.Spotify.Track.ID
-			}
+		if links.LinksByPlatform.Youtube.URL != "" {
+			idslice := strings.Split(links.LinksByPlatform.Youtube.EntityUniqueID, "::")
+			m.Links.YouTube = links.LinksByPlatform.Youtube.URL
+			m.IDs.YouTube = idslice[1]
+		}
+		return m, nil
+	} else {
+		// Found nothing with Shazam, Try with ACRCloud
+		// TODO: If Shazam is reliable enough, remove ACRCloud
+		recognitionResult, err := s.convertToAudio(url)
+		if err != nil {
+			return nil, err
+		}
+		if len(recognitionResult.Metadata.Music) > 0 {
+			acrInfo := recognitionResult.Metadata.Music[0]
+			if len(acrInfo.Title) > 0 {
+				m := &RecognizedMetadata{
+					Title:  acrInfo.Title,
+					Album:  acrInfo.Album.Name,
+					Artist: acrInfo.Artists[0].Name,
+					AcrID:  acrInfo.Acrid,
+				}
 
-			if songInfo.ExternalMetadata.Youtube.Vid != "" {
-				m.Links.YouTube = fmt.Sprintf("https://www.youtube.com/watch?v=%s", songInfo.ExternalMetadata.Youtube.Vid)
-				m.IDs.YouTube = songInfo.ExternalMetadata.Youtube.Vid
-			}
+				if acrInfo.ExternalMetadata.Spotify.Track.ID != "" {
+					m.Links.Spotify = fmt.Sprintf("https://open.spotify.com/track/%s", acrInfo.ExternalMetadata.Spotify.Track.ID)
+					m.IDs.Spotify = acrInfo.ExternalMetadata.Spotify.Track.ID
+				}
 
-			return m, nil
+				if acrInfo.ExternalMetadata.Youtube.Vid != "" {
+					m.Links.YouTube = fmt.Sprintf("https://www.youtube.com/watch?v=%s", acrInfo.ExternalMetadata.Youtube.Vid)
+					m.IDs.YouTube = acrInfo.ExternalMetadata.Youtube.Vid
+				}
+
+				return m, nil
+			}
 		}
 	}
-
 	return nil, nil
 }

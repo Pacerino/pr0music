@@ -8,6 +8,7 @@ require (
 	github.com/modfy/fluent-ffmpeg v0.1.0
 	github.com/sirupsen/logrus v1.8.1
 	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
+	golang.org/x/time v0.3.0
 	gorm.io/driver/postgres v1.2.3
 	gorm.io/gorm v1.22.5
 )
