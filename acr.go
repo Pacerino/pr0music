@@ -78,6 +78,8 @@ type RecognizedMetadata struct {
 	Links MetadataLinks
 	// Respective IDs to known streaming platforms
 	IDs MetadataIDs
+	// Provider of the recognition (ACR, Audd.io, Shazam)
+	Provider string
 }
 
 type MetadataLinks struct {

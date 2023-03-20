@@ -14,6 +14,7 @@ type Items struct {
 	Artist   string
 	Url      string
 	AcrID    string
+	Provider string
 	Metadata ItemMetadata `gorm:"embedded"`
 }
 

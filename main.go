@@ -300,12 +300,13 @@ func (s *SauceSession) findSong(msg *pr0gramm.Message) (string, []string, *Items
 		logrus.WithFields(logrus.Fields{"item_id": msg.ItemID}).Debug("Metadata was found")
 		meta.Url = fmt.Sprintf("https://pr0sauce.info/%v", msg.ItemID) // Set URL with the ItemID, creates shorter links!
 		dbItem := Items{
-			ItemID: msg.ItemID,
-			Title:  meta.Title,
-			Album:  meta.Album,
-			Artist: meta.Artist,
-			Url:    meta.Url,
-			AcrID:  meta.AcrID,
+			ItemID:   msg.ItemID,
+			Title:    meta.Title,
+			Album:    meta.Album,
+			Artist:   meta.Artist,
+			Url:      meta.Url,
+			AcrID:    meta.AcrID,
+			Provider: meta.Provider,
 			Metadata: ItemMetadata{
 				SpotifyURL: meta.Links.Spotify,
 				SpotifyID:  meta.IDs.Spotify,
@@ -421,9 +422,10 @@ func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
 		}
 		// Found with Shazam!
 		m := &RecognizedMetadata{
-			Title:  shazamInfo.Track.Title,
-			Album:  album,
-			Artist: shazamInfo.Track.Subtitle,
+			Title:    shazamInfo.Track.Title,
+			Album:    album,
+			Artist:   shazamInfo.Track.Subtitle,
+			Provider: "shazam",
 		}
 		if links.LinksByPlatform.Spotify.URL != "" {
 			idslice := strings.Split(links.LinksByPlatform.Spotify.EntityUniqueID, "::")
@@ -448,10 +450,11 @@ func (s *SauceSession) detectMusic(url string) (*RecognizedMetadata, error) {
 			acrInfo := recognitionResult.Metadata.Music[0]
 			if len(acrInfo.Title) > 0 {
 				m := &RecognizedMetadata{
-					Title:  acrInfo.Title,
-					Album:  acrInfo.Album.Name,
-					Artist: acrInfo.Artists[0].Name,
-					AcrID:  acrInfo.Acrid,
+					Title:    acrInfo.Title,
+					Album:    acrInfo.Album.Name,
+					Artist:   acrInfo.Artists[0].Name,
+					AcrID:    acrInfo.Acrid,
+					Provider: "acrcloud",
 				}
 
 				if acrInfo.ExternalMetadata.Spotify.Track.ID != "" {
